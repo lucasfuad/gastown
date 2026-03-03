@@ -132,6 +132,7 @@ func TestWithRunID_RoundTrip(t *testing.T) {
 }
 
 func TestRunIDFromCtx_Empty(t *testing.T) {
+	t.Setenv("GT_RUN", "")
 	// No run ID in context and GT_RUN not set → empty string.
 	if got := RunIDFromCtx(context.Background()); got != "" {
 		t.Errorf("RunIDFromCtx on bare context = %q, want empty (GT_RUN not set)", got)

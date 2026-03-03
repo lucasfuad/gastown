@@ -111,17 +111,6 @@ func SpawnPolecatForSling(rigName string, opts SlingSpawnOptions) (*SpawnedPolec
 			activeCount, defaultMaxActivePolecats)
 	}
 
-	// Dedup guard (GH#2203): refuse to spawn if a live polecat already has this bead.
-	// This prevents duplicate work when the witness resets an abandoned bead while
-	// another polecat is actively working on it.
-	if opts.HookBead != "" && !opts.Force {
-		if witness.IsBeadActivelyWorked(townRoot, rigName, opts.HookBead, "") {
-			return nil, fmt.Errorf("bead %s is already being worked by a live polecat in %s. "+
-				"Override with --force if you're sure the other polecat is dead",
-				opts.HookBead, rigName)
-		}
-	}
-
 	// Per-bead respawn circuit breaker (clown show #22):
 	// Track how many times this bead has been slung. Block after N attempts
 	// to prevent witness→deacon→sling feedback loops.

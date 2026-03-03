@@ -20,16 +20,15 @@ nuke your sandbox, and exit. There is no idle state. Done means gone.
 when you run `gt prime` — there are no separate step beads to close. Work through
 the checklist, then run `gt done`.
 
-**Speed principle:** You do NOT run the full test suite. The Refinery's bisecting
-merge queue is the quality authority — it runs gates on the merged batch and
-isolates failures via binary search. Your job is to build, sanity-check, and ship
-fast. The Refinery handles the rest.
+**Speed principle:** You run the full gate suite AFTER rebasing onto the target
+branch (pre-verify step). This enables the refinery to fast-path merge your MR
+in ~5 seconds instead of re-running gates. If pre-verification is skipped or
+stale, the refinery falls through to normal gate execution.
 
 **You do NOT:**
 - Push directly to main (Refinery merges from MQ)
 - Close your own issue (Refinery closes after merge)
 - Wait for merge (you're gone after `gt done`)
-- Run the full test suite (Refinery runs gates on the merge queue)
 - Fix pre-existing failures on main (Refinery owns main health)
 
 ## Variables
@@ -53,7 +52,7 @@ fast. The Refinery handles the rest.
 | Context filling | Use gt handoff to cycle to fresh session |
 | Unsure what to do | Mail Witness, don't guess |"""
 formula = "mol-polecat-work"
-version = 7
+version = 8
 
 [[steps]]
 id = "load-context"
@@ -363,9 +362,69 @@ handles the no-commit case for report-only tasks.
 **Exit criteria:** Working tree clean AND either (a) at least 1 commit ahead of origin/{{base_branch}}, or (b) report-only task with findings persisted to bead."""
 
 [[steps]]
+id = "pre-verify"
+title = "Pre-merge rebase verification"
+needs = ["commit-changes"]
+description = """
+Rebase onto the target branch and run the full gate suite. This enables the
+refinery to fast-path merge your MR without re-running gates (~5s merge
+instead of minutes).
+
+**1. Fetch and rebase onto target:**
+```bash
+git fetch origin {{base_branch}}
+git rebase origin/{{base_branch}}
+```
+
+If rebase conflicts:
+- Resolve them carefully
+- Re-run the build to ensure the resolution is correct
+- If stuck, mail Witness
+
+**2. Run the full gate suite on the rebased result:**
+
+Run ALL configured gates (not just targeted tests — this is the full verification):
+
+If build_command is set:
+```bash
+{{build_command}}
+```
+
+If typecheck_command is set:
+```bash
+{{typecheck_command}}
+```
+
+If lint_command is set:
+```bash
+{{lint_command}}
+```
+
+If test_command is set:
+```bash
+{{test_command}}
+```
+
+Empty commands mean "not configured" — skip silently.
+
+**3. If any gate fails after rebase:**
+- Fix the issue, commit, and re-run from step 1
+- Do NOT proceed with --pre-verified if gates failed
+
+**4. If all gates pass:**
+You will use `gt done --pre-verified` in the next step. This tells the refinery
+that you ran the full gate suite on a rebased branch, enabling fast-path merge.
+
+**Note:** If this step takes too long or the gates are not configured for this
+project, you may skip this step and use `gt done` without --pre-verified.
+The refinery will run gates normally (slower but still correct).
+
+**Exit criteria:** Branch rebased onto latest origin/{{base_branch}}, all configured gates pass."""
+
+[[steps]]
 id = "submit-and-exit"
 title = "Submit work and self-clean"
-needs = ["commit-changes"]
+needs = ["pre-verify"]
 description = """
 Submit your work and clean up. You cease to exist after this step.
 
@@ -385,7 +444,10 @@ This MUST show at least 1 commit. If it shows nothing, do NOT run `gt done`.
 
 **Run gt done:**
 ```bash
-# For code tasks (has commits):
+# For code tasks with pre-verification (recommended — enables fast-path merge):
+gt done --pre-verified
+
+# For code tasks without pre-verification (gates skipped or failed):
 gt done
 
 # For report-only tasks (no commits — audits, reviews, research):

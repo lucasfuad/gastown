@@ -46,6 +46,7 @@ Exit statuses:
 
 Examples:
   gt done                              # Submit branch, notify COMPLETED, transition to IDLE
+  gt done --pre-verified               # Submit with pre-verification fast-path
   gt done --issue gt-abc               # Explicit issue ID
   gt done --status ESCALATED           # Signal blocker, skip MR
   gt done --status DEFERRED            # Pause work, skip MR`,
@@ -59,6 +60,7 @@ var (
 	doneStatus        string
 	doneCleanupStatus string
 	doneResume        bool
+	donePreVerified   bool
 )
 
 // Valid exit types for gt done
@@ -74,6 +76,7 @@ func init() {
 	doneCmd.Flags().StringVar(&doneStatus, "status", ExitCompleted, "Exit status: COMPLETED, ESCALATED, or DEFERRED")
 	doneCmd.Flags().StringVar(&doneCleanupStatus, "cleanup-status", "", "Git cleanup status: clean, uncommitted, unpushed, stash, unknown (ZFC: agent-observed)")
 	doneCmd.Flags().BoolVar(&doneResume, "resume", false, "Resume from last checkpoint (auto-detected, for Witness recovery)")
+	doneCmd.Flags().BoolVar(&donePreVerified, "pre-verified", false, "Mark MR as pre-verified (polecat ran gates after rebasing onto target)")
 
 	rootCmd.AddCommand(doneCmd)
 }
@@ -317,6 +320,14 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 		if len(checkpoints) > 0 {
 			fmt.Printf("%s Resuming gt done from checkpoint (previous run was interrupted)\n", style.Bold.Render("→"))
 		}
+	}
+
+	// Write heartbeat state="exiting" (gt-3vr5: heartbeat v2).
+	// Tells the witness we're in the gt done flow — trust the agent until
+	// heartbeat goes stale. No timer-based inference needed.
+	// Parallel to done-intent label for backwards compat during migration.
+	if sessionName := os.Getenv("GT_SESSION"); sessionName != "" && townRoot != "" {
+		polecat.TouchSessionHeartbeatWithState(townRoot, sessionName, polecat.HeartbeatExiting, "gt done", issueID)
 	}
 
 	// Get configured default branch for this rig
@@ -763,6 +774,20 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 			description += "\nretry_count: 0"
 			description += "\nlast_conflict_sha: null"
 			description += "\nconflict_task_id: null"
+
+			// Phase 3: Add pre-verification metadata if polecat ran gates after rebasing.
+			// The refinery uses these fields to fast-path merge without re-running gates.
+			if donePreVerified {
+				description += "\npre_verified: true"
+				description += fmt.Sprintf("\npre_verified_at: %s", time.Now().UTC().Format(time.RFC3339))
+				// Capture current origin/target HEAD as the verified base.
+				// The polecat rebased onto this SHA before running gates.
+				if verifiedBase, baseErr := g.Rev("origin/" + target); baseErr == nil {
+					description += fmt.Sprintf("\npre_verified_base: %s", verifiedBase)
+				} else {
+					style.PrintWarning("could not resolve origin/%s for pre-verified base: %v (pre-verification data incomplete)", target, baseErr)
+				}
+			}
 
 			mrIssue, err := bd.Create(beads.CreateOptions{
 				Title:       title,

@@ -2007,6 +2007,11 @@ func (d *Daemon) restartPolecatSession(rigName, polecatName, sessionName string)
 	processNames := config.ResolveProcessNames(rc.ResolvedAgent, rc.Command)
 	_ = d.tmux.SetEnvironment(sessionName, "GT_PROCESS_NAMES", strings.Join(processNames, ","))
 
+	// Record agent's pane_id for ZFC-compliant liveness checks (gt-qmsx).
+	if paneID, err := d.tmux.GetPaneID(sessionName); err == nil {
+		_ = d.tmux.SetEnvironment(sessionName, "GT_PANE_ID", paneID)
+	}
+
 	// Apply theme
 	theme := tmux.AssignTheme(rigName)
 	_ = d.tmux.ConfigureGasTownSession(sessionName, theme, rigName, polecatName, "polecat")

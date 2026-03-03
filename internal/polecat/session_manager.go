@@ -373,6 +373,14 @@ func (m *SessionManager) Start(polecat string, opts SessionStartOptions) error {
 	// so we resolve process names from both agent name and actual command.
 	processNames := config.ResolveProcessNames(runtimeConfig.ResolvedAgent, runtimeConfig.Command)
 	debugSession("SetEnvironment GT_PROCESS_NAMES", m.tmux.SetEnvironment(sessionID, "GT_PROCESS_NAMES", strings.Join(processNames, ",")))
+
+	// Record agent's pane_id for ZFC-compliant liveness checks (gt-qmsx).
+	// Declared pane identity replaces process-tree inference in IsRuntimeRunning
+	// and FindAgentPane. Legacy sessions without GT_PANE_ID fall back to scanning.
+	if paneID, err := m.tmux.GetPaneID(sessionID); err == nil {
+		debugSession("SetEnvironment GT_PANE_ID", m.tmux.SetEnvironment(sessionID, "GT_PANE_ID", paneID))
+	}
+
 	// Hook the issue to the polecat if provided via --issue flag
 	if opts.Issue != "" {
 		agentID := fmt.Sprintf("%s/polecats/%s", m.rig.Name, polecat)

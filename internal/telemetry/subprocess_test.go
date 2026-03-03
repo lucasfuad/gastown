@@ -12,6 +12,8 @@ func TestBuildGTResourceAttrs_Empty(t *testing.T) {
 	t.Setenv("BD_ACTOR", "")
 	t.Setenv("GT_POLECAT", "")
 	t.Setenv("GT_CREW", "")
+	t.Setenv("GT_SESSION", "")
+	t.Setenv("GT_RUN", "")
 	t.Setenv("GT_WORK_RIG", "")
 	t.Setenv("GT_WORK_BEAD", "")
 	t.Setenv("GT_WORK_MOL", "")

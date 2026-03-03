@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/steveyegge/gastown/internal/beads"
@@ -151,6 +152,11 @@ func runHandoff(cmd *cobra.Command, args []string) error {
 		doneCmd.Stderr = os.Stderr
 		return doneCmd.Run()
 	}
+
+	// Enforce minimum handoff cooldown to prevent tight restart loops (gt-058d).
+	// When a patrol agent (e.g., witness) completes quickly on idle rigs,
+	// it can hand off immediately and the daemon respawns, creating a crash loop.
+	enforceHandoffCooldown()
 
 	// If --collect flag is set, auto-collect state into the message
 	if handoffCollect {
@@ -302,6 +308,9 @@ func runHandoff(cmd *cobra.Command, args []string) error {
 		markerPath := filepath.Join(runtimeDir, constants.FileHandoffMarker)
 		_ = os.WriteFile(markerPath, []byte(currentSession), 0644)
 	}
+
+	// Record handoff time for cooldown enforcement (gt-058d).
+	recordHandoffTime()
 
 	// Set remain-on-exit so the pane survives process death during handoff.
 	// Without this, killing processes causes tmux to destroy the pane before
@@ -496,6 +505,9 @@ func runHandoffCycle() error {
 		}
 		_ = os.WriteFile(markerPath, []byte(markerContent), 0644)
 	}
+
+	// Record handoff time for cooldown enforcement (gt-058d).
+	recordHandoffTime()
 
 	// Log cycle event
 	if townRoot, err := workspace.FindFromCwd(); err == nil && townRoot != "" {
@@ -1565,4 +1577,50 @@ func cleanupMoleculeOnHandoff() {
 	if err := b.ForceCloseWithReason("handoff", molID); err != nil {
 		fmt.Fprintf(os.Stderr, "handoff: warning: couldn't close molecule %s: %v\n", molID, err)
 	}
+}
+
+// enforceHandoffCooldown sleeps if the last handoff was too recent.
+// This prevents tight restart loops when patrol agents (e.g., witness)
+// complete quickly on idle rigs and immediately hand off. (gt-058d)
+//
+// The cooldown is based on the modification time of the last_handoff_ts
+// file in the .runtime directory. If the file exists and was written
+// less than MinHandoffCooldown ago, the function sleeps for the remaining
+// time. This ensures at least MinHandoffCooldown passes between handoffs.
+func enforceHandoffCooldown() {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return
+	}
+
+	tsPath := filepath.Join(cwd, constants.DirRuntime, constants.FileLastHandoffTS)
+	info, err := os.Stat(tsPath)
+	if err != nil {
+		return // No previous handoff recorded — first handoff, no cooldown
+	}
+
+	age := time.Since(info.ModTime())
+	if age >= constants.MinHandoffCooldown {
+		return // Enough time has passed
+	}
+
+	remaining := constants.MinHandoffCooldown - age
+	fmt.Printf("%s Handoff cooldown: waiting %v (last handoff %v ago, min %v)\n",
+		style.Dim.Render("⏳"), remaining.Round(time.Second),
+		age.Round(time.Second), constants.MinHandoffCooldown)
+	time.Sleep(remaining)
+}
+
+// recordHandoffTime writes the current timestamp to the handoff cooldown file.
+// Called before respawning to establish the baseline for the next cooldown check.
+func recordHandoffTime() {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return
+	}
+
+	runtimeDir := filepath.Join(cwd, constants.DirRuntime)
+	_ = os.MkdirAll(runtimeDir, 0755)
+	tsPath := filepath.Join(runtimeDir, constants.FileLastHandoffTS)
+	_ = os.WriteFile(tsPath, []byte(fmt.Sprintf("%d", time.Now().Unix())), 0644)
 }

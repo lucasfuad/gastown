@@ -538,6 +538,11 @@ func (d *Daemon) setSessionEnvironment(sessionName string, roleConfig *beads.Rol
 		_ = d.tmux.SetEnvironment(sessionName, k, v)
 	}
 
+	// Record agent's pane_id for ZFC-compliant liveness checks (gt-qmsx).
+	if paneID, err := d.tmux.GetPaneID(sessionName); err == nil {
+		_ = d.tmux.SetEnvironment(sessionName, "GT_PANE_ID", paneID)
+	}
+
 	// Set any custom env vars from role config
 	if roleConfig != nil {
 		for k, v := range roleConfig.EnvVars {

@@ -30,6 +30,7 @@ type tmuxOps interface {
 	NewSessionWithCommand(name, workDir, command string) error
 	SetRemainOnExit(pane string, on bool) error
 	SetEnvironment(session, key, value string) error
+	GetPaneID(session string) (string, error)
 	ConfigureGasTownSession(session string, theme tmux.Theme, rig, worker, role string) error
 	WaitForCommand(session string, excludeCommands []string, timeout time.Duration) error
 	SetAutoRespawnHook(session string) error
@@ -158,6 +159,11 @@ func (m *Manager) Start(agentOverride string) error {
 	envVars = session.MergeRuntimeLivenessEnv(envVars, runtimeConfig)
 	for k, v := range envVars {
 		_ = t.SetEnvironment(sessionID, k, v)
+	}
+
+	// Record agent's pane_id for ZFC-compliant liveness checks (gt-qmsx).
+	if paneID, err := t.GetPaneID(sessionID); err == nil {
+		_ = t.SetEnvironment(sessionID, "GT_PANE_ID", paneID)
 	}
 
 	// Apply Deacon theming (non-fatal: theming failure doesn't affect operation)

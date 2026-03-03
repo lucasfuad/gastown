@@ -830,6 +830,11 @@ func (m *Manager) Start(name string, opts StartOptions) error {
 		return fmt.Errorf("creating session: %w", err)
 	}
 
+	// Record agent's pane_id for ZFC-compliant liveness checks (gt-qmsx).
+	if paneID, err := t.GetPaneID(sessionID); err == nil {
+		_ = t.SetEnvironment(sessionID, "GT_PANE_ID", paneID)
+	}
+
 	// Apply rig-based theming (non-fatal: theming failure doesn't affect operation)
 	theme := tmux.AssignTheme(m.rig.Name)
 	_ = t.ConfigureGasTownSession(sessionID, theme, m.rig.Name, name, "crew")

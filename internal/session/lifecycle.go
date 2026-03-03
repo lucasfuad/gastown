@@ -276,7 +276,14 @@ func StartSession(t *tmux.Tmux, cfg SessionConfig) (_ *StartResult, retErr error
 		}
 	}
 
-	// 13. Track PID for defense-in-depth orphan cleanup.
+	// 13. Record agent's pane_id for ZFC-compliant liveness checks (gt-qmsx).
+	// Declared pane identity replaces process-tree inference in IsRuntimeRunning
+	// and FindAgentPane. Legacy sessions without GT_PANE_ID fall back to scanning.
+	if paneID, err := t.GetPaneID(cfg.SessionID); err == nil {
+		_ = t.SetEnvironment(cfg.SessionID, "GT_PANE_ID", paneID)
+	}
+
+	// 14. Track PID for defense-in-depth orphan cleanup.
 	if cfg.TrackPID && cfg.TownRoot != "" {
 		_ = TrackSessionPID(cfg.TownRoot, cfg.SessionID, t)
 	}
