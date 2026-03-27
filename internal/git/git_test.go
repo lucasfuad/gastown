@@ -1125,6 +1125,37 @@ func TestInitSubmodules_NoSubmodules(t *testing.T) {
 	}
 }
 
+func TestInitSubmodules_SkipsUntrackedGitmodules(t *testing.T) {
+	dir := initTestRepo(t)
+	gitmodules := filepath.Join(dir, ".gitmodules")
+	content := []byte("[submodule \"libs/sub\"]\n\tpath = libs/sub\n\turl = https://example.com/sub.git\n")
+	if err := os.WriteFile(gitmodules, content, 0644); err != nil {
+		t.Fatalf("write .gitmodules: %v", err)
+	}
+	if err := InitSubmodules(dir); err != nil {
+		t.Fatalf("InitSubmodules should skip untracked .gitmodules: %v", err)
+	}
+}
+
+func TestHasTrackedGitmodules(t *testing.T) {
+	dir := initTestRepo(t)
+	if hasTrackedGitmodules(dir) {
+		t.Fatal("expected false when .gitmodules doesn't exist")
+	}
+	gitmodules := filepath.Join(dir, ".gitmodules")
+	if err := os.WriteFile(gitmodules, []byte("[submodule \"x\"]\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if hasTrackedGitmodules(dir) {
+		t.Fatal("expected false when .gitmodules exists but is untracked")
+	}
+	runGit(t, dir, "add", ".gitmodules")
+	runGit(t, dir, "commit", "-m", "add gitmodules")
+	if !hasTrackedGitmodules(dir) {
+		t.Fatal("expected true when .gitmodules is tracked")
+	}
+}
+
 func TestInitSubmodules_WithSubmodules(t *testing.T) {
 	parent, _ := initTestRepoWithSubmodule(t)
 
